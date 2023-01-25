@@ -135,12 +135,13 @@ def train_and_validate(model, train_dataset, val_dataset, device, batch_size, nu
     bce_loss_func16 = nn.BCELoss().to(device)
     bce_loss_func32 = nn.BCELoss().to(device)
     boundary_loss_func = DetailAggregateLoss(device).to(device)
-    optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=5e-4)
-
+    optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9, weight_decay=5e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
     min_loss = np.inf
     for epoch in range(1, epochs + 1):
         train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, optimizer,
               epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
+        scheduler.step()
         torch.save(model.state_dict(), f'{save_dir}/last.pth')
 
         loss = validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, epoch,
