@@ -158,7 +158,7 @@ def run(
         train_dataset='datasets/train',
         val_dataset='datasets/val',
         device='cuda',
-        batch_size=4,
+        batch_size=32,
         num_workers=4,
         epochs=50,
         use_boundary2=False,
@@ -180,7 +180,7 @@ def parse_opt():
     parser.add_argument('--train-dataset', type=str, help='training datasets', default='datasets/train')
     parser.add_argument('--val-dataset', type=str, help='validation datasets', default='datasets/val')
     parser.add_argument('--weights', help='weight path', default='')
-    parser.add_argument('--batch-size', type=int, help='batch size', default=4)
+    parser.add_argument('--batch-size', type=int, help='batch size', default=32)
     parser.add_argument('--num-workers', type=int, help='number of workers', default=4)
     parser.add_argument('--device', type=str, help='device', default='cuda')
     parser.add_argument('--epochs', type=int, help='number of epochs', default=50)

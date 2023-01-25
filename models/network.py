@@ -161,7 +161,6 @@ class ContextPath(nn.Module):
 
     def forward(self, x):
         feature2, feature4, feature8, feature16, feature32 = self.backbone(x)
-        h0, w0 = x.shape[2:]
         h8, w8 = feature8.shape[2:]
         h16, w16 = feature16.shape[2:]
         h32, w32 = feature32.shape[2:]
