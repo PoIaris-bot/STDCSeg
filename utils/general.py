@@ -13,6 +13,11 @@ def increment_path(path):
     return path
 
 
+def threshold(mask):
+    _, mask = cv2.threshold(mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return mask
+
+
 def localization(mask):
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     area = []

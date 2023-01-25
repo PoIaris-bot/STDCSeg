@@ -41,9 +41,8 @@ def train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32,
         bce_loss16 = bce_loss_func16(out16.squeeze(1), target)
         bce_loss32 = bce_loss_func32(out32.squeeze(1), target)
         bce_loss = bce_loss0 + bce_loss16 + bce_loss32
-        metric_monitor.update('Segmentation Loss', bce_loss.item())
+        metric_monitor.update('Segment Loss', bce_loss.item())
 
-        boundary_loss = 0.
         boundary_loss = 0.
         if use_boundary2:
             boundary_bce_loss2, boundary_dice_loss2 = boundary_loss_func(detail2, target)
@@ -91,9 +90,8 @@ def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32
             bce_loss16 = bce_loss_func16(out16.squeeze(1), target)
             bce_loss32 = bce_loss_func32(out32.squeeze(1), target)
             bce_loss = bce_loss0 + bce_loss16 + bce_loss32
-            metric_monitor.update('Segmentation Loss', bce_loss.item())
+            metric_monitor.update('Segment Loss', bce_loss.item())
 
-            boundary_loss = 0.
             boundary_loss = 0.
             if use_boundary2:
                 boundary_bce_loss2, boundary_dice_loss2 = boundary_loss_func(detail2, target)
