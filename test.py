@@ -20,14 +20,35 @@ def create_model(backbone, weights, device):
     return model.eval().to(device)
 
 
-def test(model, test_dataset, device, save_dir):
+def log(backbone, save_dir, avg_error, max_error, max_error_filename, avg_infer_time, error_leq1p_ratio,
+        error_leq3p_ratio, error_leq5p_ratio):
+    text = \
+        'backbone: {}\n' \
+        'average error: {:.4f} p\n' \
+        'maximum error: {:.4f} p\n' \
+        'test image with the maximum error: {}\n' \
+        'average inference time: {:.2f} ms\n' \
+        'percentage of images with error less equal than 1 pixel: {:.2f} %\n' \
+        'percentage of images with error less equal than 3 pixels: {:.2f} %\n' \
+        'percentage of images with error less equal than 5 pixels: {:.2f} %\n' \
+        'Results saved to {}'.format(
+            backbone, avg_error, max_error, max_error_filename, avg_infer_time, error_leq1p_ratio, error_leq3p_ratio,
+            error_leq5p_ratio, save_dir
+        )
+
+    with open(f'{save_dir}/log.txt', 'w') as f:
+        f.write(text)
+    print(text)
+
+
+def test(model, backbone, test_dataset, device, save_dir):
     image_directory = os.path.join(test_dataset, 'JPEGImages')
     mask_directory = os.path.join(test_dataset, 'SegmentationClass')
     image_filenames = os.listdir(image_directory)
 
     avg_error = 0
     max_error = 0
-    max_error_image_name = ''
+    max_error_filename = ''
 
     error_leq1p_count = 0
     error_leq3p_count = 0
@@ -67,15 +88,11 @@ def test(model, test_dataset, device, save_dir):
             error_leq5p_count += 1 if error <= 5 else 0
 
             avg_error += error
-            max_error_image_name = image_filename if error > max_error else max_error_image_name
+            max_error_filename = image_filename if error > max_error else max_error_filename
             max_error = error if error > max_error else max_error
-    print(f'average error: {avg_error / len(image_filenames)} maximum error: {max_error}')
-    print(f'average inference time: {avg_infer_time / len(image_filenames)} s')
-    print(f'percentage of images with error less equal than 1 pixel: {error_leq1p_count / len(image_filenames)}')
-    print(f'percentage of images with error less equal than 3 pixels: {error_leq3p_count / len(image_filenames)}')
-    print(f'percentage of images with error less equal than 5 pixels: {error_leq5p_count / len(image_filenames)}')
-    print(f'test image with the maximum error: {max_error_image_name}')
-    print(f'\nResults saved to {save_dir}')
+    log(backbone, save_dir, avg_error / len(image_filenames), max_error, max_error_filename,
+        avg_infer_time / len(image_filenames) * 1000, error_leq1p_count / len(image_filenames) * 100,
+        error_leq3p_count / len(image_filenames) * 100, error_leq5p_count / len(image_filenames) * 100)
 
 
 def run(backbone, weights, test_dataset, device):
@@ -83,7 +100,7 @@ def run(backbone, weights, test_dataset, device):
     os.makedirs(save_dir)
 
     model = create_model(backbone, weights, device)
-    test(model, test_dataset, device, save_dir)
+    test(model, backbone, test_dataset, device, save_dir)
 
 
 def parse_opt():

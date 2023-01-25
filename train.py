@@ -115,7 +115,21 @@ def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32
     return avg_loss
 
 
-def train_and_validate(model, train_dataset, val_dataset, device, batch_size, num_workers, epochs, use_boundary2,
+def log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss):
+    text = \
+        'backbone: {}\n' \
+        'epoch: {}/{}\n' \
+        'loss: {:<8.6f}\n' \
+        'best epoch: {}\n' \
+        'minimum loss: {:<8.6f}'.format(
+            backbone, epoch, epochs, loss, min_loss_epoch, min_loss
+        )
+    with open(f'{save_dir}/log.txt', 'w') as f:
+        f.write(text)
+
+
+def train_and_validate(model, backbone, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
+                       use_boundary2,
                        use_boundary4, use_boundary8, save_dir):
     train_loader = DataLoader(
         KeyholeDataset(train_dataset, train_transform),
@@ -137,18 +151,23 @@ def train_and_validate(model, train_dataset, val_dataset, device, batch_size, nu
     boundary_loss_func = DetailAggregateLoss(device).to(device)
     optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
+
+    loss = np.inf
     min_loss = np.inf
+    min_loss_epoch = 1
     for epoch in range(1, epochs + 1):
         train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, optimizer,
               epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
         scheduler.step()
         torch.save(model.state_dict(), f'{save_dir}/last.pth')
+        log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
 
         loss = validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, epoch,
                         epochs, device, use_boundary2, use_boundary4, use_boundary8)
         if loss < min_loss:
-            min_loss = loss
+            min_loss, min_loss_epoch = loss, epoch
             torch.save(model.state_dict(), f'{save_dir}/best.pth')
+        log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
     print(f'\nResults saved to {save_dir}')
 
 
@@ -158,7 +177,7 @@ def run(
         train_dataset='datasets/train',
         val_dataset='datasets/val',
         device='cuda',
-        batch_size=32,
+        batch_size=16,
         num_workers=4,
         epochs=50,
         use_boundary2=False,
@@ -170,8 +189,8 @@ def run(
     os.makedirs(save_dir, exist_ok=True)
 
     model = create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
-    train_and_validate(model, train_dataset, val_dataset, device, batch_size, num_workers, epochs, use_boundary2,
-                       use_boundary4, use_boundary8, save_dir)
+    train_and_validate(model, backbone, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
+                       use_boundary2, use_boundary4, use_boundary8, save_dir)
 
 
 def parse_opt():
@@ -180,7 +199,7 @@ def parse_opt():
     parser.add_argument('--train-dataset', type=str, help='training datasets', default='datasets/train')
     parser.add_argument('--val-dataset', type=str, help='validation datasets', default='datasets/val')
     parser.add_argument('--weights', help='weight path', default='')
-    parser.add_argument('--batch-size', type=int, help='batch size', default=32)
+    parser.add_argument('--batch-size', type=int, help='batch size', default=16)
     parser.add_argument('--num-workers', type=int, help='number of workers', default=4)
     parser.add_argument('--device', type=str, help='device', default='cuda')
     parser.add_argument('--epochs', type=int, help='number of epochs', default=50)
