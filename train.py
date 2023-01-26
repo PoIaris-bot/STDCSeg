@@ -15,7 +15,7 @@ from utils.transform import train_transform, val_transform
 def create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last):
     model = STDCSeg(backbone, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
     if weights and os.path.exists(weights):
-        model.load_state_dict(torch.load(weights))
+        model.load_state_dict(torch.load(weights, map_location=device))
     return model.to(device)
 
 

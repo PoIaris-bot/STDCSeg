@@ -13,7 +13,7 @@ def create_model(backbone, weights, device):
     print(f'Loading {backbone}Seg...')
     model = STDCSeg(backbone)
     if os.path.exists(weights):
-        model.load_state_dict(torch.load(weights))
+        model.load_state_dict(torch.load(weights, map_location=device))
         print('Successfully loaded weights\n')
     else:
         raise SystemExit('Failed to load weights')
