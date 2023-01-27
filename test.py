@@ -4,6 +4,7 @@ import time
 import torch
 import argparse
 from math import sqrt
+from pathlib import Path
 from models.network import STDCSeg
 from utils.general import increment_path, localization
 from utils.transform import resize_image, resize_mask, threshold
@@ -13,17 +14,18 @@ def create_model(backbone, weights, device):
     print(f'Loading {backbone}Seg...')
     model = STDCSeg(backbone)
     if os.path.exists(weights):
-        model.load_state_dict(torch.load(weights, map_location=device))
+        model.load_state_dict(torch.load(weights, map_location=torch.device(device)))
         print('Successfully loaded weights\n')
     else:
         raise SystemExit('Failed to load weights')
     return model.eval().to(device)
 
 
-def log(backbone, save_dir, avg_error, max_error, max_error_filename, avg_infer_time, error_leq1p_ratio,
+def log(backbone, weights, save_dir, avg_error, max_error, max_error_image_path, avg_infer_time, error_leq1p_ratio,
         error_leq3p_ratio, error_leq5p_ratio):
     text = \
         'backbone: {}\n' \
+        'weights: {}\n' \
         'average error: {:.4f} p\n' \
         'maximum error: {:.4f} p\n' \
         'test image with the maximum error: {}\n' \
@@ -32,8 +34,8 @@ def log(backbone, save_dir, avg_error, max_error, max_error_filename, avg_infer_
         'percentage of images with error less equal than 3 pixels: {:.2f} %\n' \
         'percentage of images with error less equal than 5 pixels: {:.2f} %\n' \
         'Results saved to {}'.format(
-            backbone, avg_error, max_error, max_error_filename, avg_infer_time, error_leq1p_ratio, error_leq3p_ratio,
-            error_leq5p_ratio, save_dir
+            backbone, Path(weights).absolute(), avg_error, max_error, Path(max_error_image_path).absolute(),
+            avg_infer_time, error_leq1p_ratio, error_leq3p_ratio, error_leq5p_ratio, save_dir
         )
 
     with open(f'{save_dir}/log.txt', 'w') as f:
@@ -41,14 +43,15 @@ def log(backbone, save_dir, avg_error, max_error, max_error_filename, avg_infer_
     print(text)
 
 
-def test(model, backbone, test_dataset, device, save_dir):
+def test(backbone, weights, test_dataset, device, save_dir):
+    model = create_model(backbone, weights, device)
     image_directory = os.path.join(test_dataset, 'JPEGImages')
     mask_directory = os.path.join(test_dataset, 'SegmentationClass')
     image_filenames = os.listdir(image_directory)
 
     avg_error = 0
     max_error = 0
-    max_error_filename = ''
+    max_error_image_path = ''
 
     error_leq1p_count = 0
     error_leq3p_count = 0
@@ -88,9 +91,9 @@ def test(model, backbone, test_dataset, device, save_dir):
             error_leq5p_count += 1 if error <= 5 else 0
 
             avg_error += error
-            max_error_filename = image_filename if error > max_error else max_error_filename
+            max_error_image_path = image_path if error > max_error else max_error_image_path
             max_error = error if error > max_error else max_error
-    log(backbone, save_dir, avg_error / len(image_filenames), max_error, max_error_filename,
+    log(backbone, weights, save_dir, avg_error / len(image_filenames), max_error, max_error_image_path,
         avg_infer_time / len(image_filenames) * 1000, error_leq1p_count / len(image_filenames) * 100,
         error_leq3p_count / len(image_filenames) * 100, error_leq5p_count / len(image_filenames) * 100)
 
@@ -99,8 +102,7 @@ def run(backbone, weights, test_dataset, device):
     save_dir = increment_path('runs/test/exp')
     os.makedirs(save_dir)
 
-    model = create_model(backbone, weights, device)
-    test(model, backbone, test_dataset, device, save_dir)
+    test(backbone, weights, test_dataset, device, save_dir)
 
 
 def parse_opt():

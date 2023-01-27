@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from torch import nn, optim
+from pathlib import Path
 from torch.utils.data import DataLoader
 from models.loss import DetailAggregateLoss
 from models.network import STDCSeg
@@ -15,7 +16,7 @@ from utils.transform import train_transform, val_transform
 def create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last):
     model = STDCSeg(backbone, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
     if weights and os.path.exists(weights):
-        model.load_state_dict(torch.load(weights, map_location=device))
+        model.load_state_dict(torch.load(weights, map_location=torch.device(device)))
     return model.to(device)
 
 
@@ -115,22 +116,22 @@ def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32
     return avg_loss
 
 
-def log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss):
+def log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss):
     text = \
         'backbone: {}\n' \
+        'weights: {}\n' \
         'epoch: {}/{}\n' \
         'loss: {:<8.6f}\n' \
         'best epoch: {}\n' \
         'minimum loss: {:<8.6f}'.format(
-            backbone, epoch, epochs, loss, min_loss_epoch, min_loss
+            backbone, Path(weights).absolute() if weights else None, epoch, epochs, loss, min_loss_epoch, min_loss
         )
     with open(f'{save_dir}/log.txt', 'w') as f:
         f.write(text)
 
 
-def train_and_validate(model, backbone, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
-                       use_boundary2,
-                       use_boundary4, use_boundary8, save_dir):
+def train_and_validate(backbone, weights, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
+                       use_boundary2, use_boundary4, use_boundary8, use_conv_last, save_dir):
     train_loader = DataLoader(
         KeyholeDataset(train_dataset, train_transform),
         batch_size=batch_size,
@@ -145,6 +146,8 @@ def train_and_validate(model, backbone, train_dataset, val_dataset, device, batc
         num_workers=num_workers,
         pin_memory=True,
     )
+    model = create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
+
     bce_loss_func0 = nn.BCELoss().to(device)
     bce_loss_func16 = nn.BCELoss().to(device)
     bce_loss_func32 = nn.BCELoss().to(device)
@@ -160,14 +163,14 @@ def train_and_validate(model, backbone, train_dataset, val_dataset, device, batc
               epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
         scheduler.step()
         torch.save(model.state_dict(), f'{save_dir}/last.pth')
-        log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
+        log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
 
         loss = validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, epoch,
                         epochs, device, use_boundary2, use_boundary4, use_boundary8)
         if loss < min_loss:
             min_loss, min_loss_epoch = loss, epoch
             torch.save(model.state_dict(), f'{save_dir}/best.pth')
-        log(save_dir, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
+        log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
     print(f'\nResults saved to {save_dir}')
 
 
@@ -188,9 +191,8 @@ def run(
     save_dir = increment_path('runs/train/exp')
     os.makedirs(save_dir, exist_ok=True)
 
-    model = create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
-    train_and_validate(model, backbone, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
-                       use_boundary2, use_boundary4, use_boundary8, save_dir)
+    train_and_validate(backbone, weights, train_dataset, val_dataset, device, batch_size, num_workers, epochs,
+                       use_boundary2, use_boundary4, use_boundary8, use_conv_last, save_dir)
 
 
 def parse_opt():
