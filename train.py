@@ -6,11 +6,11 @@ from tqdm import tqdm
 from torch import nn, optim
 from pathlib import Path
 from torch.utils.data import DataLoader
-from models.loss import DetailAggregateLoss
+from models.loss import DetailAggregateLoss, OhemBCELoss
 from models.network import STDCSeg
 from utils.dataset import KeyholeDataset
 from utils.general import MetricMonitor, increment_path
-from utils.transform import train_transform, val_transform
+from utils.transform import train_transform, val_transform, size
 
 
 def create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last):
@@ -20,8 +20,8 @@ def create_model(backbone, weights, device, use_boundary2, use_boundary4, use_bo
     return model.to(device)
 
 
-def train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, optimizer, epoch,
-          epochs, device, use_boundary2, use_boundary4, use_boundary8):
+def train(train_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32, boundary_loss_func,
+          optimizer, epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8):
     metric_monitor = MetricMonitor(float_precision=5)
     model.train()
     stream = tqdm(train_loader)
@@ -38,11 +38,11 @@ def train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32,
         if (not use_boundary2) and (not use_boundary4) and (not use_boundary8):
             out, out16, out32 = model(images)
 
-        bce_loss0 = bce_loss_func0(out.squeeze(1), target)
-        bce_loss16 = bce_loss_func16(out16.squeeze(1), target)
-        bce_loss32 = bce_loss_func32(out32.squeeze(1), target)
-        bce_loss = bce_loss0 + bce_loss16 + bce_loss32
-        metric_monitor.update('Segment Loss', bce_loss.item())
+        ohem_bce_loss0 = ohem_bce_loss_func0(out.squeeze(1), target)
+        ohem_bce_loss16 = ohem_bce_loss_func16(out16.squeeze(1), target)
+        ohem_bce_loss32 = ohem_bce_loss_func32(out32.squeeze(1), target)
+        ohem_bce_loss = ohem_bce_loss0 + ohem_bce_loss16 + ohem_bce_loss32
+        metric_monitor.update('Segment Loss', ohem_bce_loss.item())
 
         boundary_loss = 0.
         if use_boundary2:
@@ -56,7 +56,7 @@ def train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32,
             boundary_loss += boundary_bce_loss8 + boundary_dice_loss8
         metric_monitor.update('Detail Loss', boundary_loss.item())
 
-        loss = bce_loss + boundary_loss
+        loss = ohem_bce_loss + boundary_loss
         metric_monitor.update('Total Loss', loss.item())
         optimizer.zero_grad()
         loss.backward()
@@ -68,8 +68,8 @@ def train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32,
         )
 
 
-def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, epoch, epochs,
-             device, use_boundary2, use_boundary4, use_boundary8):
+def validate(val_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32, boundary_loss_func,
+             epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8):
     metric_monitor = MetricMonitor(float_precision=5)
     model.eval()
     stream = tqdm(val_loader)
@@ -87,11 +87,11 @@ def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32
             if (not use_boundary2) and (not use_boundary4) and (not use_boundary8):
                 out, out16, out32 = model(images)
 
-            bce_loss0 = bce_loss_func0(out.squeeze(1), target)
-            bce_loss16 = bce_loss_func16(out16.squeeze(1), target)
-            bce_loss32 = bce_loss_func32(out32.squeeze(1), target)
-            bce_loss = bce_loss0 + bce_loss16 + bce_loss32
-            metric_monitor.update('Segment Loss', bce_loss.item())
+            ohem_bce_loss0 = ohem_bce_loss_func0(out.squeeze(1), target)
+            ohem_bce_loss16 = ohem_bce_loss_func16(out16.squeeze(1), target)
+            ohem_bce_loss32 = ohem_bce_loss_func32(out32.squeeze(1), target)
+            ohem_bce_loss = ohem_bce_loss0 + ohem_bce_loss16 + ohem_bce_loss32
+            metric_monitor.update('Segment Loss', ohem_bce_loss.item())
 
             boundary_loss = 0.
             if use_boundary2:
@@ -105,7 +105,7 @@ def validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32
                 boundary_loss += boundary_bce_loss8 + boundary_dice_loss8
             metric_monitor.update('Detail Loss', boundary_loss.item())
 
-            loss = bce_loss + boundary_loss
+            loss = ohem_bce_loss + boundary_loss
             metric_monitor.update('Total Loss', loss.item())
             stream.set_description(
                 'Epoch: {epoch}/{epochs}. Validation. {metric_monitor}'.format(
@@ -148,10 +148,12 @@ def train_and_validate(backbone, weights, train_dataset, val_dataset, device, ba
     )
     model = create_model(backbone, weights, device, use_boundary2, use_boundary4, use_boundary8, use_conv_last)
 
-    bce_loss_func0 = nn.BCELoss().to(device)
-    bce_loss_func16 = nn.BCELoss().to(device)
-    bce_loss_func32 = nn.BCELoss().to(device)
-    boundary_loss_func = DetailAggregateLoss(device).to(device)
+    thresh = 0.7
+    n_min = size[0] * size[1]
+    ohem_bce_loss_func0 = OhemBCELoss(thresh, n_min).to(device)
+    ohem_bce_loss_func16 = OhemBCELoss(thresh, n_min).to(device)
+    ohem_bce_loss_func32 = OhemBCELoss(thresh, n_min).to(device)
+    boundary_loss_func = DetailAggregateLoss().to(device)
     optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
 
@@ -159,14 +161,14 @@ def train_and_validate(backbone, weights, train_dataset, val_dataset, device, ba
     min_loss = np.inf
     min_loss_epoch = 1
     for epoch in range(1, epochs + 1):
-        train(train_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, optimizer,
-              epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
+        train(train_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32, boundary_loss_func,
+              optimizer, epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
         scheduler.step()
         torch.save(model.state_dict(), f'{save_dir}/last.pth')
         log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
 
-        loss = validate(val_loader, model, bce_loss_func0, bce_loss_func16, bce_loss_func32, boundary_loss_func, epoch,
-                        epochs, device, use_boundary2, use_boundary4, use_boundary8)
+        loss = validate(val_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32,
+                        boundary_loss_func, epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
         if loss < min_loss:
             min_loss, min_loss_epoch = loss, epoch
             torch.save(model.state_dict(), f'{save_dir}/best.pth')
