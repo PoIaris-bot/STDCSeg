@@ -60,21 +60,3 @@ class DetailAggregateLoss(nn.Module):
         bce_loss = F.binary_cross_entropy(boundary, boudary_target)
         dice_loss = dice_loss_func(boundary, boudary_target)
         return bce_loss, dice_loss
-
-
-class OhemBCELoss(nn.Module):
-    def __init__(self, thresh, n_min):
-        super(OhemBCELoss, self).__init__()
-        self.thresh = -torch.log(torch.tensor(thresh, dtype=torch.float32))
-        self.n_min = n_min
-        self.criterion = nn.BCELoss(reduction='none')
-
-    def forward(self, output, target):
-        loss = self.criterion(output, target).view(-1)
-        loss, _ = torch.sort(loss, descending=True)
-
-        if loss[self.n_min] > self.thresh:
-            loss = loss[loss > self.thresh]
-        else:
-            loss = loss[:self.n_min]
-        return torch.mean(loss)
