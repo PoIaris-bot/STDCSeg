@@ -4,7 +4,7 @@ from albumentations.pytorch import ToTensorV2
 
 mean = (0.2518, 0.2756, 0.3137)
 std = (0.1822, 0.1999, 0.2314)
-size = (512, 512)
+size = (256, 256)
 
 train_transform = A.Compose(
     [
