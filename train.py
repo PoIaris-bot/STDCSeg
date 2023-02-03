@@ -1,9 +1,8 @@
 import os
 import torch
 import argparse
-import numpy as np
 from tqdm import tqdm
-from torch import nn, optim
+from torch import optim
 from pathlib import Path
 from torch.utils.data import DataLoader
 from models.loss import DetailAggregateLoss, OhemBCELoss
@@ -68,63 +67,42 @@ def train(train_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_b
         )
 
 
-def validate(val_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32, boundary_loss_func,
-             epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8):
-    metric_monitor = MetricMonitor(float_precision=5)
+def validate(val_loader, model, device, epoch, epochs):
+    metric_monitor = MetricMonitor(float_precision=4)
     model.eval()
     stream = tqdm(val_loader)
     with torch.no_grad():
         for i, (images, target) in enumerate(stream, start=1):
             images = images.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
+            output = model(images)[0].squeeze()
 
-            if use_boundary2 and use_boundary4 and use_boundary8:
-                out, out16, out32, detail2, detail4, detail8 = model(images)
-            if (not use_boundary2) and use_boundary4 and use_boundary8:
-                out, out16, out32, detail4, detail8 = model(images)
-            if (not use_boundary2) and (not use_boundary4) and use_boundary8:
-                out, out16, out32, detail8 = model(images)
-            if (not use_boundary2) and (not use_boundary4) and (not use_boundary8):
-                out, out16, out32 = model(images)
+            output = output > 0.1
+            target = target == 1
 
-            ohem_bce_loss0 = ohem_bce_loss_func0(out.squeeze(1), target)
-            ohem_bce_loss16 = ohem_bce_loss_func16(out16.squeeze(1), target)
-            ohem_bce_loss32 = ohem_bce_loss_func32(out32.squeeze(1), target)
-            ohem_bce_loss = ohem_bce_loss0 + ohem_bce_loss16 + ohem_bce_loss32
-            metric_monitor.update('Segment Loss', ohem_bce_loss.item())
+            TP = torch.sum(output & target)
+            FP = torch.sum(output & (~target))
+            FN = torch.sum((~output) & target)
+            IoU = TP / (TP + FP + FN) * 100
 
-            boundary_loss = 0.
-            if use_boundary2:
-                boundary_bce_loss2, boundary_dice_loss2 = boundary_loss_func(detail2, target)
-                boundary_loss += boundary_bce_loss2 + boundary_dice_loss2
-            if use_boundary4:
-                boundary_bce_loss4, boundary_dice_loss4 = boundary_loss_func(detail4, target)
-                boundary_loss += boundary_bce_loss4 + boundary_dice_loss4
-            if use_boundary8:
-                boundary_bce_loss8, boundary_dice_loss8 = boundary_loss_func(detail8, target)
-                boundary_loss += boundary_bce_loss8 + boundary_dice_loss8
-            metric_monitor.update('Detail Loss', boundary_loss.item())
-
-            loss = ohem_bce_loss + boundary_loss
-            metric_monitor.update('Total Loss', loss.item())
+            metric_monitor.update('IoU', IoU.item())
             stream.set_description(
-                'Epoch: {epoch}/{epochs}. Validation. {metric_monitor}'.format(
+                'Epoch: {epoch}/{epochs}. Validation. {metric_monitor} %'.format(
                     epoch=epoch, epochs=epochs, metric_monitor=metric_monitor
                 )
             )
-    avg_loss = metric_monitor.metrics['Total Loss']['avg']
-    return avg_loss
+    return metric_monitor.metrics['IoU']['avg']
 
 
-def log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss):
+def log(save_dir, weights, backbone, epoch, epochs, IoU, IoU_max, IoU_max_epoch):
     text = \
         'backbone: {}\n' \
         'weights: {}\n' \
         'epoch: {}/{}\n' \
-        'loss: {:<8.6f}\n' \
+        'IoU: {:<7.4f} %\n' \
         'best epoch: {}\n' \
-        'minimum loss: {:<8.6f}'.format(
-            backbone, Path(weights).absolute() if weights else None, epoch, epochs, loss, min_loss_epoch, min_loss
+        'maximum IoU: {:<7.4f} %'.format(
+            backbone, Path(weights).absolute() if weights else None, epoch, epochs, IoU, IoU_max_epoch, IoU_max
         )
     with open(f'{save_dir}/log.txt', 'w') as f:
         f.write(text)
@@ -157,22 +135,19 @@ def train_and_validate(backbone, weights, train_dataset, val_dataset, device, ba
     optimizer = optim.SGD(model.parameters(), lr=1e-2, momentum=0.9, weight_decay=5e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
 
-    loss = np.inf
-    min_loss = np.inf
-    min_loss_epoch = 1
+    IoU_max = 0
+    IoU_max_epoch = 1
     for epoch in range(1, epochs + 1):
         train(train_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32, boundary_loss_func,
               optimizer, epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
         scheduler.step()
         torch.save(model.state_dict(), f'{save_dir}/last.pth')
-        log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
 
-        loss = validate(val_loader, model, ohem_bce_loss_func0, ohem_bce_loss_func16, ohem_bce_loss_func32,
-                        boundary_loss_func, epoch, epochs, device, use_boundary2, use_boundary4, use_boundary8)
-        if loss < min_loss:
-            min_loss, min_loss_epoch = loss, epoch
+        IoU = validate(val_loader, model, device, epoch, epochs)
+        if IoU > IoU_max:
+            IoU_max, IoU_max_epoch = IoU, epoch
             torch.save(model.state_dict(), f'{save_dir}/best.pth')
-        log(save_dir, weights, backbone, epoch, epochs, min_loss_epoch, loss, min_loss)
+        log(save_dir, weights, backbone, epoch, epochs, IoU, IoU_max, IoU_max_epoch)
     print(f'\nResults saved to {save_dir}')
 
 
